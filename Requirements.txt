@@ -1,6 +1,8 @@
-SONORA – iOS Music Player
+fSONORA – iOS Music Player
 
 Complete Project Requirements & Development Handover
+
+Note: This document is a handover prompt for a new AI-assisted development conversation. It is written in Markdown-style formatting. Sections 18 and 19 record known architecture risks and additional requirements.
 
 1. Project Overview
 
@@ -26,7 +28,8 @@ I have a Mac mini and an iPhone.
 * UI framework: SwiftUI
 * Audio playback: AVFoundation
 * Advanced audio processing: AVAudioEngine
-* Local database: SwiftData or SQLite
+* Minimum iOS version: to be confirmed from the target iPhone's iOS version (iOS 17+ is required for SwiftData and @Observable).
+* Local database: SwiftData (requires iOS 17+) or SQLite (e.g. GRDB). Decide in Phase 1 based on the minimum iOS version; do not mix both.
 * Development environment: Xcode
 * Native iOS application preferred over Flutter or React Native.
 
@@ -81,9 +84,9 @@ B. Cloud Storage
 Support these cloud providers:
 
 * Google Drive
-* MEGA
 * Microsoft OneDrive
 * Dropbox
+* MEGA (optional, lowest priority: no official streaming-friendly iOS API, content is end-to-end encrypted, and the MEGA SDK is a heavy dependency whose terms must be checked)
 
 Users should be able to connect their own accounts through secure authentication.
 
@@ -149,6 +152,7 @@ Requirements:
 * Display codec, bitrate, sample rate and bit depth when available.
 * Handle different audio formats correctly.
 * Investigate additional codec libraries if native iOS support is insufficient.
+* FLAC is the main risk: AVFoundation can read local FLAC files but does not reliably stream FLAC over HTTP. Decide early between a decoder library (e.g. libFLAC or SFBAudioEngine) and another approach. See Section 18.
 
 Important: Do not claim that audio quality improves simply by increasing sample rate or bitrate.
 
@@ -219,9 +223,9 @@ Metadata should be extracted from available file tags. External artwork and meta
 
 9. Music Search and Download Requirements
 
-I want to search for music from different Indian and international film industries.
+Scope for v1: metadata search only (finding songs, albums and artists, including Indian and international film music). v1 does not acquire or download music from unlicensed sources.
 
-Preferred languages:
+Preferred languages for metadata and search:
 
 * Kannada
 * Hindi
@@ -229,9 +233,9 @@ Preferred languages:
 * Telugu
 * English
 
-The long-term objective is to make it easy to find music and add it to my library.
+Any future feature for adding music to the library must use only licensed sources or files I am legally authorized to use.
 
-However, the application must respect copyright and platform restrictions.
+The application must respect copyright and platform restrictions.
 
 Important limitations:
 
@@ -364,12 +368,13 @@ Phase 2 – Library
 
 Phase 3 – Cloud
 
+* Register apps and obtain API credentials for each provider (Google Drive scope verification may be needed if published; Dropbox and OneDrive have app registration and rate limits).
 * Google Drive integration.
 * Dropbox integration.
 * OneDrive integration.
-* Investigate and implement MEGA integration.
 * Implement cloud streaming.
 * Implement uploads and offline downloads.
+* Investigate MEGA integration last; treat it as optional.
 
 Phase 4 – Audio
 
@@ -394,6 +399,8 @@ Phase 6 – Final Release
 * Prepare for potential App Store release.
 
 For initial personal testing, investigate free Apple Developer Account deployment through Xcode.
+
+Free account limitations: apps expire after 7 days and must be re-signed from Xcode, and the CarPlay entitlement and TestFlight are not available. The paid Apple Developer Program costs $99/year and is required for CarPlay, TestFlight and the App Store.
 
 For wider distribution and TestFlight/App Store publishing, explain the Apple Developer Program requirements and costs.
 
@@ -426,6 +433,7 @@ Ask me:
 1. Which Mac mini processor do I have: Intel, M1, M2, M3 or M4?
 2. Is Xcode already installed?
 3. Which iPhone and iOS version am I using?
+4. Do I have a paid Apple Developer Program account, or only a free one?
 
 Then:
 
@@ -439,3 +447,52 @@ Do not start with cloud integrations or CarPlay. First establish a reliable nati
 Final Goal:
 
 Build SONORA into my personal premium music player, with cloud-first music management, offline playback, lossless audio support, a polished interface and eventual Apple CarPlay compatibility.
+
+⸻
+
+18. Architecture Risks
+
+Resolve these before building the features they affect.
+
+Risk 1: Cloud streaming vs. equalizer / audio effects
+* AVPlayer can stream over HTTP but its audio cannot be routed through AVAudioEngine.
+* Equalizer, Bass Boost, crossfade and ReplayGain need AVAudioEngine, which plays files or PCM buffers, not network streams.
+* Options: (a) progressive download to a temporary cache file, then play it through AVAudioEngine; (b) a custom decode-and-buffer layer feeding AVAudioEngine; (c) use AVPlayer for streaming and apply effects only to downloaded/local tracks.
+* Recommendation: design a single PlaybackEngine protocol so the engine can be swapped. Start with AVPlayer for local and streaming playback (Phase 1) and add the AVAudioEngine path in Phase 4. Document which features work on streamed tracks.
+
+Risk 2: FLAC and other non-native formats
+* AVFoundation reads local FLAC through AVAudioFile on recent iOS, but HTTP streaming of FLAC is unreliable.
+* Options: a decoder library (libFLAC, SFBAudioEngine), or progressive download of FLAC before playback.
+* Verify on the target iOS version with real FLAC files before committing.
+
+Risk 3: Gapless playback and crossfade
+* Both are easiest on the AVAudioEngine path (scheduling buffers back to back). AVPlayer gapless behaviour is limited.
+* Treat them as Phase 4 features tied to the engine decision in Risk 1.
+
+Risk 4: MEGA
+* No official streaming-friendly iOS API; files are end-to-end encrypted, so plain HTTP range requests do not work.
+* Keep it optional and last. Do not let it shape the cloud abstraction.
+
+Risk 5: Cloud abstraction
+* Define a CloudProvider protocol (auth, list, search, stream URL or byte-range read, download, upload, quota) so each provider is a plug-in.
+* Token refresh and expiry handling live in one place.
+
+Risk 6: Database choice
+* SwiftData needs iOS 17+. If the target iPhone is older, use SQLite (GRDB). Decide in Phase 1.
+
+Risk 7: CarPlay
+* Requires an Apple-approved entitlement and a paid developer account. Keep playback and library logic independent of the UI so a CarPlay scene can reuse it.
+
+Risk 8: Copyright and platform terms
+* Metadata search must not become an unlicensed download path. See Section 9.
+
+⸻
+
+19. Additional Requirements
+
+* Network resilience: buffering indicators, automatic retry with backoff, graceful behaviour when a stream drops mid-track, and fallback to the offline copy when one exists.
+* Local/cloud duplicates: when the same song exists locally and in the cloud, treat it as one library item, prefer the offline copy for playback, and show both states.
+* Large libraries: the library must stay responsive with thousands of songs; use paging for cloud folder listings and lazy artwork loading.
+* Cloud indexing: index cloud metadata without downloading whole files (read tags via range requests where possible, cache results locally).
+* Accessibility: VoiceOver labels, Dynamic Type and sufficient contrast in the dark theme.
+* Testing: unit tests for the library, queue and cloud provider layers; manual test checklists for background playback, lock screen, interruptions (calls, Siri), route changes (Bluetooth, headphones) and offline mode; test on a real iPhone.
